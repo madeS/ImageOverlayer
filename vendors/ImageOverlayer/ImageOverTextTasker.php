@@ -4,74 +4,33 @@
 	Author: Andrei Bogarevich
 	License:  MIT License
 	Site: https://github.com/madeS/ImageOverlayer
-	v1.0.0.7
-	Last Mod: 2015-07-20 20:00
+	v1.1.0.10
+	Last Mod: 2015-08-01 20:00
 */
-
 class ImageOverTextTasker extends ImageOverTasker {
-    
-    private $box_line_left = -1;
-    private $box_line_top = -1;
-    private $box_line_right = -1;
-    private $box_line_bottom = -1;
     
     private $font = '';
     private $fontMaxSize = 30;
     private $fontMinSize = 8;
     private $fontLineHeight = 2.7;
-    private $fontColorRed = 0x41;
-    private $fontColorGreen = 0x41;
-    private $fontColorBlue = 0x41;
+    private $fontLineHeightCorrector = array(
+		'ratio' => 0.7, 
+		'added' => 2,
+	);
+    private $fontColor = null;
     
     private $align = '';
+    private $valign = '';
     private $text = '';
-    
-    private $debugFlag = false;
-    
-    /**
-     * Устанавливает размер поля для ввода текста размеры устанавливаются в пикселях или процентах( для процентов передается строка со знаком процент вконце)
-     * @param type $left
-     * @param type $top
-     * @param type $width
-     * @param type $height
-     */
-    public function setBox($left, $top, $width, $height){
-        if (!$this->background) {
-            throw new ImageOverlayException('Canvas not setted!'); 
-        }
-        if (is_string($left) && mb_substr($left, -1) === '%') {
-            $this->box_line_left = intval(floatval($left) * $this->background['width'] / 100);
-        } else {
-            $this->box_line_left = intval($left);
-        }
-        if (is_string($top) && mb_substr($top, -1) === '%') {
-            $this->box_line_top = intval(floatval($top) * $this->background['height'] / 100);
-        } else {
-            $this->box_line_top = intval($top);
-        }
-        if (is_string($width) && mb_substr($width, -1) === '%') {
-            $this->box_line_right = $this->box_line_left + intval(floatval($width) * $this->background['width'] / 100);
-        } else {
-            $this->box_line_right = $this->box_line_left + intval($width);
-        }
-        if (is_string($height) && mb_substr($height, -1) === '%') {
-            $this->box_line_bottom = $this->box_line_top + intval(floatval($height) * $this->background['height'] / 100);
-        } else {
-            $this->box_line_bottom = $this->box_line_top + intval($height);
-        }
-        if (    $this->box_line_left < 0 || $this->box_line_left > $this->background['width'] ||
-                $this->box_line_right < 0 || $this->box_line_right > $this->background['width'] ||
-                $this->box_line_top < 0 || $this->box_line_top > $this->background['height'] ||
-                $this->box_line_bottom < 0 || $this->box_line_bottom > $this->background['height'] )
-        {
-            $this->box_line_left = $this->box_line_right = $this->box_line_top = $this->box_line_bottom = -1;
-            throw new ImageOverlayException('Box out of range');
-            return false;
-        }
-        return true;
+
+    public function __construct($background){ 
+        parent::__construct($background);
+
+        $this->fontColor = new ImageOverColor();
     }
+
     
-    public function setFont($fontPath, $maxSize = 30, $minSize = 8, $lineHeight = 1.7, $align = 'left', $colorRed = 0x41, $colorGreen = 0x41, $colorBlue = 0x41){
+    public function setFont($fontPath, $maxSize = 30, $minSize = 8, $lineHeight = 1.7, $align = 'left', $valign = 'top', ImageOverColor $color = null){
         if (!(file_exists($fontPath) && is_file($fontPath))){
             throw new ImageOverlayException('Font file not found');
         }
@@ -80,16 +39,11 @@ class ImageOverTextTasker extends ImageOverTasker {
         $this->fontMinSize = (int) $minSize;
         $this->fontLineHeight = (int) $lineHeight;
         $this->align = $align;
+        $this->valign = $valign;
         
-        $this->fontColorRed = $colorRed;
-        if ($this->fontColorRed < 0) $this->fontColorRed = 0;
-        if ($this->fontColorRed > 255) $this->fontColorRed = 255;
-        $this->fontColorGreen = $colorGreen;
-        if ($this->fontColorGreen < 0) $this->fontColorGreen = 0;
-        if ($this->fontColorGreen > 255) $this->fontColorGreen = 255;
-        $this->fontColorBlue = $colorBlue;
-        if ($this->fontColorBlue < 0) $this->fontColorBlue = 0;
-        if ($this->fontColorBlue > 255) $this->fontColorBlue = 255;
+        if ($color){
+            $this->fontColor = $color;
+        }
         
         return true;
     }
@@ -99,14 +53,10 @@ class ImageOverTextTasker extends ImageOverTasker {
         return true;
     }
     
-    public function activeDebug(){
-        $this->debugFlag = true;
-    }
-    
+   
     public function execute(&$source){
         if ($this->box_line_left < 0) return false;
-        
-        if ($this->debugFlag) $this->debugging($source);
+        parent::execute($source);
         
         $words = explode(' ', $this->text);
         
@@ -151,21 +101,29 @@ class ImageOverTextTasker extends ImageOverTasker {
                 }
             }
             // На выходе есть текст $textLined разбитый на \n который вмещается* в бокс-ширину со шрифтом $fontsize
-            $lineHeight = intval($this->fontLineHeight * $fontsize);
+            $lineHeight = intval($this->fontLineHeight * $fontsize * ( ( $this->fontLineHeightCorrector['added'] + $this->fontLineHeightCorrector['ratio'] * $fontsize) / $fontsize));
             $lines = explode("\n", $textLined);
+			$totalHeight = count($lines) * $lineHeight;
             if ($fontsize - $fontsizeStep >= $this->fontMinSize){ // Это не последняя попытка
-                if (count($lines) * $lineHeight > $this->box_line_bottom - $this->box_line_top){ // Не вмещается по высоте
+                if ($totalHeight > $this->box_line_bottom - $this->box_line_top){ // Не вмещается по высоте
                     $textLined = '';
                     continue;
                 }
             }
             break;
         }
-        
+		
+        $topStartOffset = 0;
+		if ($this->valign == 'center'){
+			$topStartOffset = intval(($this->box_line_bottom - $this->box_line_top - $totalHeight) / 2);
+		} elseif ($this->valign == 'bottom'){
+			$topStartOffset = intval(($this->box_line_bottom - $this->box_line_top - $totalHeight) - $lineHeight/3);
+		}
+		
         $lines = explode("\n", $textLined);
-        $lineHeight = intval($this->fontLineHeight * $fontsize);
+        $lineHeight = intval($this->fontLineHeight * $fontsize * ( ($this->fontLineHeightCorrector['added'] + $this->fontLineHeightCorrector['ratio'] * $fontsize) / $fontsize));
         
-        $color	= imagecolorallocate($source, $this->fontColorRed, $this->fontColorGreen, $this->fontColorBlue);
+        $color	= imagecolorallocate($source, $this->fontColor->getRed(), $this->fontColor->getGreen(), $this->fontColor->getBlue());
         
         for($i = 0; $i < count($lines); $i++){
             $line = $lines[$i];
@@ -176,7 +134,7 @@ class ImageOverTextTasker extends ImageOverTasker {
             $righted = $textbox[4];
             $topped = $textbox[5];
             
-            $topOffset = ($i+1) * $lineHeight;
+            $topOffset = ($i+1) * $lineHeight + $topStartOffset;
             $leftOffset = 0;
             if($this->align == 'center'){
                 $leftOffset = intval((($this->box_line_right - $this->box_line_left) - ($righted - $leftedbox)) / 2);
@@ -192,19 +150,7 @@ class ImageOverTextTasker extends ImageOverTasker {
         
     }
     
-    
-    
-    
-    
-    private function debugging(&$source){
-        
-        imageline($source, $this->box_line_left, $this->box_line_top, $this->box_line_right, $this->box_line_top, 0xFF0000);
-        imageline($source, $this->box_line_right, $this->box_line_top, $this->box_line_right, $this->box_line_bottom, 0xFF0000);
-        imageline($source, $this->box_line_right, $this->box_line_bottom, $this->box_line_left, $this->box_line_bottom, 0xFF0000);
-        imageline($source, $this->box_line_left, $this->box_line_bottom, $this->box_line_left, $this->box_line_top, 0xFF0000);
-        
-    }
-    
+
     
     
 }

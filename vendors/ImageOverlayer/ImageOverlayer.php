@@ -4,12 +4,15 @@
 	Author: Andrei Bogarevich
 	License:  MIT License
 	Site: https://github.com/madeS/ImageOverlayer
-	v1.0.0.7
-	Last Mod: 2015-07-20 20:00
+	v1.1.0.10
+	Last Mod: 2015-08-01 20:00
 */
 require_once 'ImageOverBase.php';
+require_once 'ImageOverColor.php';
 require_once 'ImageOverTasker.php';
 require_once 'ImageOverTextTasker.php';
+require_once 'ImageOverImageTasker.php';
+require_once 'ImageOverRectTasker.php';
 
 class ImageOverlayer extends ImageOverBase {
     
@@ -25,30 +28,13 @@ class ImageOverlayer extends ImageOverBase {
      * @return boolean
      */
     public function setCanvas($backgroundImagePath){
-        if (!(file_exists($backgroundImagePath) && is_file($backgroundImagePath))){
-            throw new ImageOverlayException('Canvas not found');
-        } 
-        $size = getimagesize($backgroundImagePath);
-        if(!$size) { 
-            throw new ImageOverlayException('Canvas invalid file type');
+        try {
+            $background = $this->getCheckedImage($backgroundImagePath);
+        } catch (ImageOverlayException $ex){
+            throw $ex;
         }
         
-        $width = isset($size[0]) ? $size[0] : 0;
-        $height = isset($size[1]) ? $size[1] : 0;
-        $type = $size['mime'];
-        if (!$width || !$height) { 
-            throw new ImageOverlayException('Canvas invalid image size');
-        }
-        if (!in_array($type, array('image/jpeg','image/png','image/gif'))) { 
-            throw new ImageOverlayException('Canvas invalid image mime');
-        }
-        
-        $this->background = array(
-            'image' => $backgroundImagePath,
-            'width' => $width,
-            'height' => $height,
-            'mime' => $type,
-        );
+        $this->background = $background;
         
         $this->createWorkImage();
         
@@ -63,6 +49,15 @@ class ImageOverlayer extends ImageOverBase {
     public function createTextTask(){
         if (!$this->checkBackground()) return false;
         return new ImageOverTextTasker($this->background);
+    }
+    
+    public function createImageTask(){
+        if (!$this->checkBackground()) return false;
+        return new ImageOverImageTasker($this->background);
+    }
+	public function createRectTask(){
+        if (!$this->checkBackground()) return false;
+        return new ImageOverRectTasker($this->background);
     }
     
     public function overlay($arrayOfTasks){
@@ -97,21 +92,24 @@ class ImageOverlayer extends ImageOverBase {
 		}
         
         if ($output_type == 'image/jpeg'){
-            $resultFile = $directory.$fileName.'.jpg';
+			$fileName = $fileName.'.jpg';
+            $resultFile = $directory.$fileName;
 			$quality = (isset($opt['quality']))?intval($opt['quality']):85;
 			imagejpeg($this->workImage, $resultFile, $quality);
 		} elseif($output_type == 'image/png') {
-            $resultFile = $directory.$fileName.'.png';
+			$fileName = $fileName.'.png';
+            $resultFile = $directory.$fileName;
 			imagepng($this->workImage, $resultFile);
 		} elseif($output_type == 'image/gif') {
-            $resultFile = $directory.$fileName.'.gif';
+			$fileName = $fileName.'.gif';
+            $resultFile = $directory.$fileName;
 			imagegif($this->workImage, $resultFile);
 		} else {
              throw new ImageOverlayException('Save: unsupport MIME type when save');
 		}
         chmod($resultFile, $out_mode);
         
-        return true;
+        return $fileName;
     }
     
     public function destroy(){
@@ -166,20 +164,11 @@ class ImageOverlayer extends ImageOverBase {
     }
     
     private function createSrc(){
-        $src = false;
-		if ($this->background['mime'] == 'image/jpeg'){
-			$src = @imagecreatefromjpeg($this->background['image']);
-		} elseif($this->background['mime'] == 'image/png') {
-			$src = @imagecreatefrompng($this->background['image']);
-		} elseif($this->background['mime'] == 'image/gif') {
-			$src = @imagecreatefromgif($this->background['image']);
-		} else {
-            throw new ImageOverlayException('unsupport MIME type when open canvas');
-		}
-		if (!$src) {
-            throw new ImageOverlayException('unsupport file, open error canvas');
-
-		}
+        try {
+           $src = $this->getImageResource($this->background);
+        } catch (ImageOverlayException $ex){
+            throw $ex;
+        }
         return $src;
     }
     
